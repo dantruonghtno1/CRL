@@ -116,8 +116,11 @@ class Manager(object):
             train_data(data_loader, "init_train_{}".format(epoch_i), is_mem=False)
     def train_mem_model(self, args, encoder, mem_data, proto_mem, epochs, seen_relations):
         history_nums = len(seen_relations) - args.rel_per_task
-        if len(proto_mem)>0:
-            
+        # start edit here
+        # if len(proto_mem)>0:
+        if len(proto_mem)>args.rel_per_task:
+            proto_mem = torch.cat(proto_mem, dim=0)
+        # end edit here
             proto_mem = F.normalize(proto_mem, p =2, dim=1)
             dist = dot_dist(proto_mem, proto_mem)
             dist = dist.to(args.device)
@@ -245,6 +248,10 @@ class Manager(object):
             
             history_relation = []
             proto4repaly = []
+
+            # start edit here 
+            protos_raw = []
+            # end edit hert
             for steps, (training_data, valid_data, test_data, current_relations, historic_test_data, seen_relations) in enumerate(sampler):
 
                 print(current_relations)
@@ -263,15 +270,20 @@ class Manager(object):
                 if len(memorized_samples)>0:
                     # select current task sample
                     for relation in current_relations:
-                        memorized_samples[relation], _, _ = self.select_data(args, encoder, training_data[relation])
+                        memorized_samples[relation], _, proto_raw = self.select_data(args, encoder, training_data[relation])
+                        # start edit here
+                        protos_raw.append(proto_raw)
+                        # end edit here
                     
                     train_data_for_memory = []
                     for relation in history_relation:
                         train_data_for_memory += memorized_samples[relation]
                     
                     self.moment.init_moment(args, encoder, train_data_for_memory, is_memory=True)
-                    self.train_mem_model(args, encoder, train_data_for_memory, proto4repaly, args.step2_epochs, seen_relations)
-
+                    # start edit here
+                    # self.train_mem_model(args, encoder, train_data_for_memory, proto4repaly, args.step2_epochs, seen_relations)
+                    self.train_mem_model(args, encoder, train_data_for_memory, protos_raw, args.step2_epochs, seen_relations)
+                    # end edit here
                 feat_mem = []
                 proto_mem = []
 
