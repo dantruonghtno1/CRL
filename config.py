@@ -74,6 +74,6 @@ class Param:
         parser.add_argument("--data_path", default='datasets/', type=str)
 
         # bert-base-uncased weights path
-        parser.add_argument("--bert_path", default="datasets/bert-base-uncased", type=str)
+        parser.add_argument("--bert_path", default="bert-base-uncased", type=str)
         
         return parser
