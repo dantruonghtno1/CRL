@@ -123,7 +123,7 @@ class Manager(object):
             print('first task not use prototype')
             # print('prototype before cat')
 #             print(proto_mem)
-            # proto_mem = torch.stack(proto_mem, dim=0)
+            proto_mem = torch.stack(proto_mem, dim=0)
             print(f'proto size: {proto_mem.size()}')
             # print('prototype after cat')
             print(proto_mem)
