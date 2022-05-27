@@ -1,3 +1,4 @@
+# %%writefile methods/manager.py
 from dataloaders.sampler import data_sampler
 from dataloaders.data_loader import get_data_loader
 from .model import Encoder
@@ -117,10 +118,16 @@ class Manager(object):
     def train_mem_model(self, args, encoder, mem_data, proto_mem, epochs, seen_relations):
         history_nums = len(seen_relations) - args.rel_per_task
         # start edit here
-        # if len(proto_mem)>0:
-        if len(proto_mem)>args.rel_per_task:
+        if len(proto_mem)>0:
+#         if len(proto_mem)>args.rel_per_task:
             print('first task not use prototype')
-            proto_mem = torch.stack(proto_mem, dim=0)
+            # print('prototype before cat')
+#             print(proto_mem)
+            # proto_mem = torch.stack(proto_mem, dim=0)
+            print(f'proto size: {proto_mem.size()}')
+            # print('prototype after cat')
+            print(proto_mem)
+            
         # end edit here
             proto_mem = F.normalize(proto_mem, p =2, dim=1)
             dist = dot_dist(proto_mem, proto_mem)
