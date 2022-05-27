@@ -120,7 +120,7 @@ class Manager(object):
         # if len(proto_mem)>0:
         if len(proto_mem)>args.rel_per_task:
             print('first task not use prototype')
-            proto_mem = torch.cat(proto_mem, dim=0)
+            proto_mem = torch.stack(proto_mem, dim=0)
         # end edit here
             proto_mem = F.normalize(proto_mem, p =2, dim=1)
             dist = dot_dist(proto_mem, proto_mem)
