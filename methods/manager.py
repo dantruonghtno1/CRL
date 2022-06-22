@@ -416,7 +416,7 @@ class Manager(object):
                 self.train_simple_model(args, encoder, train_data_for_initial, args.step1_epochs)
 
                 # repaly
-                if len(memorized_samples)>0:
+                if len(memorized_samples)>=0:
                     # select current task sample
                     for relation in current_relations:
                         memorized_samples[relation], _, proto_raw = self.select_data(args, encoder, training_data[relation])
