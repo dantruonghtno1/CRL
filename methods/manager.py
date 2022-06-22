@@ -124,7 +124,7 @@ class Manager(object):
                 + intra_class_loss: torch.tensor()
         """
     @torch.no_grad()
-    def get_concentration(args, encoder, training_data, protos_raw, current_relations):
+    def get_concentration(self, args, encoder, training_data, protos_raw, current_relations):
         """
             inputs: 
                 + encoder: nn.Module()
