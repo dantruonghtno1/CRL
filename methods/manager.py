@@ -150,7 +150,7 @@ class Manager(object):
             hiddens = torch.cat(hiddens, dim = 0)
             
             # expect: samples : n_samples x hidden_dim
-            dist = torch.cdist(hiddens.unsqueeze(0), protos_raw.unsqueeze(0), p = 2).squeeze(0)
+            dist = torch.cdist(hiddens.unsqueeze(0), protos_raw.unsqueeze(0).to(args.device), p = 2).squeeze(0)
             # expect: n_samples x n_seen_relations
             dist = torch.sum(dist, dim = 0)
             concentration[rel] = dist
