@@ -147,7 +147,7 @@ class Manager(object):
                 tokens = torch.stack([x.to(args.device) for x in tokens], dim = 0)
                 hidden, _ =  encoder.bert_forward(tokens)
                 hiddens.append(hidden)
-            hiddens = torch.cat(hidden, dim = 0)
+            hiddens = torch.cat(hiddens, dim = 0)
             
             # expect: samples : n_samples x hidden_dim
             dist = torch.cdist(hiddens.unsqueeze(0), protos_raw.unsqueeze(0), p = 2).squeeze(0)
