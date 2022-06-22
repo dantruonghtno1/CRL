@@ -1,4 +1,5 @@
 # %%writefile methods/manager.py
+
 from dataloaders.sampler import data_sampler
 from dataloaders.data_loader import get_data_loader
 from .model import Encoder
@@ -115,20 +116,163 @@ class Manager(object):
             print(f"{name} loss is {np.array(losses).mean()}")
         for epoch_i in range(epochs):
             train_data(data_loader, "init_train_{}".format(epoch_i), is_mem=False)
+            
+    def intra_class_loss(self, args, encoder, training_data):
+        """
+        
+            return:
+                + intra_class_loss: torch.tensor()
+        """
+    @torch.no_grad()
+    def get_concentration(args, encoder, training_data, protos_raw, current_relations):
+        """
+            inputs: 
+                + encoder: nn.Module()
+                + training_data: dict[relation, [labels, tokens, ind]]
+                + protos_raw: list[torch.Tensor()]
+            return:
+                + concentraition: dict[relation, dist[torch.Tensor(n_seen_relations)]]
+        """
+        
+        protos_raw = torch.stack(protos_raw, dim = 0)
+        concentration = {}
+        for rel in current_relations:
+            train_data_per_rel = []
+            train_data_per_rel += training_data[rel]
+            data_loader = get_data_loader(args, train_data_per_rel, batch_size = 64)
+            
+            hiddens = []
+            for step, batch_data in enumerate(data_loader):
+                labels, tokens, ind = batch_data
+                tokens = torch.stack([x.to(args.device) for x in tokens], dim = 0)
+                hidden, _ =  encoder.bert_forward(tokens)
+                hiddens.append(hidden)
+            hiddens = torch.cat(hidden, dim = 0)
+            
+            # expect: samples : n_samples x hidden_dim
+            dist = torch.cdist(hiddens.unsqueeze(0), protos_raw.unsqueeze(0), p = 2).squeeze(0)
+            # expect: n_samples x n_seen_relations
+            dist = torch.sum(dist, dim = 0)
+            concentration[rel] = dist
+        return concentration
+    
+    def get_protoNCE_loss(self, args, hiddens, protos_raw, balance_class, seen_relations, labels, concentraion):
+        """
+            inputs: 
+                + hiddens: torch.Tensor(requires_grad = True) : batch_size x 768
+                + protos_raw: torch.Tensor(requires_grad = True) : n_seen_relations x 768 
+                + balance_class: torch.Tenor(): [1 x batch_size]
+                
+                + labels: list[int]
+                + concentration : dict[relation; torch.Tensor]
+            outputs:
+                + protoNCE_loss: torch.tensor(requires_grad = True)
+        """
+        phi = []
+        hiddens = F.normalize(hiddens, p = 2, dim = 1)
+        protos_raw = torch.stack(protos_raw, dim =0)
+        protos_raw = F.normalize(protos_raw, p = 2, dim = 1)
+        
+        for rel in labels:
+            phi.append(concentraion[rel])
+        phi = torch.stack(phi, dim = 0)
+        # step 1: calculation contrastive loss between hiddens and protos_raw
+        dot_product = torch.mm(hiddens, protos_raw.T)
+        # expect: dot_product : batch_size x n_seen_relations 
+        dot_product *= phi
+        dot_product = torch.exp(dot_product - torch.max(dot_product, dim = 1, keepdim = True)[0].detach()) + 1e-5
+        labels = torch.Tensor(labels)
+        mask = labels.unsqueeze(1).repeat(1, seen_relations.shape[0]) == seen_relations
+        prob = -torch.log(dot_product / torch.sum(dot_product, dim = 1, keepdim = True))
+        contrastive_loss = torch.sum(prob*mask, dim = 1) * balance_class
+        contrastive_loss = torch.mean(contrastive_loss)
+
+        return contrastive_loss
+            
+    def train_no_name_model(self, args, encoder, training_data, protos_raw, seen_relations, current_relations, proto_dict, concentration):
+        """
+            
+            return:
+                + no_name_loss = \lambda_1 * intra_class_loss +\lambda_2 * protoNCE_loss : torch.tensor()
+        
+        """
+
+        data_loader = get_data_loader(args, training_data, shuffle=True)
+        encoder.train()
+        
+        optimizer = self.get_optimizer(args, encoder)
+        def train_data(data_loader_, name = "", is_mem = False):
+            intra_class_losses = []
+            protoNCE_losses = []
+            td = tqdm(data_loader_, desc=name)
+
+#             proto_dict = {}
+#             # start generate prototype for each relation 
+#             for relation in current_relations:
+#                 _,_, proto = self.select_data(args, encoder, total_training_data_dict[relation])
+#                 proto_dict[self.rel2id[relation]] = proto
+#             # end generate prototype for each relation
+            for step, batch_data in enumerate(td):
+                optimizer.zero_grad()
+
+                labels, tokens, ind = batch_data
+                #  ----------------------start intra class loss --------------------------
+                # start map prototype for each sample in batch 
+                balance_class = np.array(labels)
+                balance_class = [1/np.sum(balance_class == c) for c in balance_class]
+                balance_class = torch.Tensor(balance_class)
+                proto_batch = [proto_dict[(int)(rel.item())] for rel in labels]
+                proto_batch = torch.stack([x.to(args.device) for x in proto_batch], dim = 0)
+                # proto_batch: batch_size x encoder_output_dim
+                # end map prototype for each sample in batch 
+                labels = labels.to(args.device)
+                tokens = torch.stack([x.to(args.device) for x in tokens], dim=0)
+                hiddens, reps = encoder.bert_forward(tokens)
+                # start calculate intra class loss
+                euclid_distance = (proto_batch - hiddens)**2
+                euclid_distance = torch.sum(euclid_distance, dim = -1)
+                euclid_distance = euclid_distance.to(args.device)
+                balance_class = balance_class.to(args.device)
+                intra_class_loss = euclid_distance@balance_class
+                intra_class_loss = intra_class_loss.view(-1)
+                # end calculate intra class loss                 
+          
+                # add intra class loss into final_loss
+                intra_class_losses.append(intra_class_loss.item())
+                # -----------------------end intra class loss ---------------------------------
+                
+                # -----------------------start protoNCE class loss ----------------------------
+                protoNCE_loss = self.get_protoNCE_loss(args, hiddens, protos_raw, balance_class, seen_relations, labels, concentration)
+                protoNCE_losses.append(protoNCE_loss.item())
+                # -----------------------start protoNCE class loss ----------------------------
+                
+                no_name_loss = 1 * intra_class_loss + 1 * protoNCE_loss
+                
+                
+                td.set_postfix(protoNCE_loss = np.array(protoNCE_losses).mean(), intra_class_loss=" {} ".format(np.array(intra_class_losses).mean()))
+
+                no_name_loss.backward()
+                torch.nn.utils.clip_grad_norm_(encoder.parameters(), args.max_grad_norm)
+                optimizer.step()
+                # update moemnt
+                if is_mem:
+                    self.moment.update_mem(ind, reps.detach())
+                else:
+                    self.moment.update(ind, reps.detach())
+        for epoch_i in range(5):
+            train_data(data_loader, "init_train_{}".format(epoch_i), is_mem=False, current_relations = current_relations, training_data = training_data, args = args)
+            
+            
+
+    def episodic_distillation(args, encoder):
+        """
+            return:
+                + episodic_loss: torch.tensor()
+        """
     def train_mem_model(self, args, encoder, mem_data, proto_mem, epochs, seen_relations):
         history_nums = len(seen_relations) - args.rel_per_task
-        # start edit here
         if len(proto_mem)>0:
-#         if len(proto_mem)>args.rel_per_task:
-            print('first task not use prototype')
-            # print('prototype before cat')
-#             print(proto_mem)
-            proto_mem = torch.stack(proto_mem, dim=0)
-            print(f'proto size: {proto_mem.size()}')
-            # print('prototype after cat')
-            print(proto_mem)
             
-        # end edit here
             proto_mem = F.normalize(proto_mem, p =2, dim=1)
             dist = dot_dist(proto_mem, proto_mem)
             dist = dist.to(args.device)
@@ -256,10 +400,8 @@ class Manager(object):
             
             history_relation = []
             proto4repaly = []
-
-            # start edit here 
             protos_raw = []
-            # end edit hert
+            protos_dict = {}
             for steps, (training_data, valid_data, test_data, current_relations, historic_test_data, seen_relations) in enumerate(sampler):
 
                 print(current_relations)
@@ -272,26 +414,28 @@ class Manager(object):
                 # no memory. first train with current task
                 self.moment = Moment(args)
                 self.moment.init_moment(args, encoder, train_data_for_initial, is_memory=False)
-                self.train_simple_model(args, encoder, train_data_for_initial, args.step1_epochs)
+#                 self.train_simple_model(args, encoder, train_data_for_initial, args.step1_epochs)
 
                 # repaly
                 if len(memorized_samples)>0:
                     # select current task sample
                     for relation in current_relations:
                         memorized_samples[relation], _, proto_raw = self.select_data(args, encoder, training_data[relation])
-                        # start edit here
                         protos_raw.append(proto_raw)
-                        # end edit here
-                    
+                        protos_dict[self.rel2id[relation]] = proto_raw
+                    print('--------------------------------start get concentration ----------------------------')
+                    concentration = self.get_concentration(args, encoder, training_data, protos_raw, current_relations)
+                    print('--------------------------------end get concentration -----------------------------')
+                    print('--------------------------------start train no name model -------------------------')
+                    self.train_no_name_model(args,encoder, train_data_for_initial, seen_relations, current_relations, protos_dict, concentration)
+                    print('--------------------------------end train no name model----------------------------')
                     train_data_for_memory = []
                     for relation in history_relation:
                         train_data_for_memory += memorized_samples[relation]
                     
-                    self.moment.init_moment(args, encoder, train_data_for_memory, is_memory=True)
-                    # start edit here
-                    # self.train_mem_model(args, encoder, train_data_for_memory, proto4repaly, args.step2_epochs, seen_relations)
-                    self.train_mem_model(args, encoder, train_data_for_memory, protos_raw, args.step2_epochs, seen_relations)
-                    # end edit here
+#                     self.moment.init_moment(args, encoder, train_data_for_memory, is_memory=True)
+#                     self.train_mem_model(args, encoder, train_data_for_memory, proto4repaly, args.step2_epochs, seen_relations)
+
                 feat_mem = []
                 proto_mem = []
 
