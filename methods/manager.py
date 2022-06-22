@@ -1,4 +1,4 @@
-# %%writefile methods/manager.py
+%%writefile methods/manager.py
 
 from dataloaders.sampler import data_sampler
 from dataloaders.data_loader import get_data_loader
@@ -191,6 +191,9 @@ class Manager(object):
             
     def train_no_name_model(self, args, encoder, training_data, protos_raw, seen_relations, current_relations, proto_dict, concentration):
         """
+            input: 
+                + args:
+    
             
             return:
                 + no_name_loss = \lambda_1 * intra_class_loss +\lambda_2 * protoNCE_loss : torch.tensor()
@@ -260,7 +263,7 @@ class Manager(object):
                 else:
                     self.moment.update(ind, reps.detach())
         for epoch_i in range(5):
-            train_data(data_loader, "init_train_{}".format(epoch_i), is_mem=False, current_relations = current_relations, training_data = training_data, args = args)
+            train_data(data_loader, "init_train_{}".format(epoch_i), is_mem=False)
             
             
 
@@ -427,7 +430,8 @@ class Manager(object):
                     concentration = self.get_concentration(args, encoder, training_data, protos_raw, current_relations)
                     print('--------------------------------end get concentration -----------------------------')
                     print('--------------------------------start train no name model -------------------------')
-                    self.train_no_name_model(args,encoder, train_data_for_initial, seen_relations, current_relations, protos_dict, concentration)
+
+                    self.train_no_name_model(args,encoder, train_data_for_initial, protos_raw, seen_relations, current_relations, protos_dict, concentration)
                     print('--------------------------------end train no name model----------------------------')
                     train_data_for_memory = []
                     for relation in history_relation:
