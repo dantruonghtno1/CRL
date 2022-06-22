@@ -162,9 +162,9 @@ class Manager(object):
                 + hiddens: torch.Tensor(requires_grad = True) : batch_size x 768
                 + protos_raw: torch.Tensor(requires_grad = True) : n_seen_relations x 768 
                 + balance_class: torch.Tenor(): [1 x batch_size]
-                
-                + labels: list[int]
-                + concentration : dict[relation; torch.Tensor]
+                + seen_relations: list[str]
+                + labels: torch.Tensor(): 1 x len(current_relations)
+                + concentration : dict[relation; torch.Tensor([1 x len(seen_relations)])]
             outputs:
                 + protoNCE_loss: torch.tensor(requires_grad = True)
         """
