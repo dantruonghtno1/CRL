@@ -190,9 +190,12 @@ class Manager(object):
     def train_no_name_model(self, args, encoder, training_data, protos_raw, seen_relations, current_relations, proto_dict, concentration):
         """
             input: 
-                + args:
-    
-            
+                + training_data: list
+                + protos_raw: list[torch.Tensor([1 x encoderoutput_dim])]
+                + seen_relations : list[str]
+                + current_relations : list[str]
+                + proto_dict: dict[relation, tensor.Tensor([1 x encoder_output_dim])]
+                + concentration: dict[relation, tensor.Tensor([1 x len(seen_relations)])]
             return:
                 + no_name_loss = \lambda_1 * intra_class_loss +\lambda_2 * protoNCE_loss : torch.tensor()
         
