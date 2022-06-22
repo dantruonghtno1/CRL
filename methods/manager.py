@@ -1,4 +1,4 @@
-%%writefile methods/manager.py
+# %%writefile methods/manager.py
 
 from dataloaders.sampler import data_sampler
 from dataloaders.data_loader import get_data_loader
@@ -153,7 +153,7 @@ class Manager(object):
             dist = torch.cdist(hiddens.unsqueeze(0), protos_raw.unsqueeze(0).to(args.device), p = 2).squeeze(0)
             # expect: n_samples x n_seen_relations
             dist = torch.sum(dist, dim = 0)
-            concentration[rel] = dist
+            concentration[self.rel2id[rel]] = dist
         return concentration
     
     def get_protoNCE_loss(self, args, hiddens, protos_raw, balance_class, seen_relations, labels, concentraion):
@@ -174,14 +174,17 @@ class Manager(object):
         protos_raw = F.normalize(protos_raw, p = 2, dim = 1)
         
         for rel in labels:
-            phi.append(concentraion[rel])
+            phi.append(concentraion[(int)(rel.item())])
         phi = torch.stack(phi, dim = 0)
         # step 1: calculation contrastive loss between hiddens and protos_raw
+        protos_raw = protos_raw.to(args.device)
         dot_product = torch.mm(hiddens, protos_raw.T)
         # expect: dot_product : batch_size x n_seen_relations 
         dot_product *= phi
         dot_product = torch.exp(dot_product - torch.max(dot_product, dim = 1, keepdim = True)[0].detach()) + 1e-5
-        labels = torch.Tensor(labels)
+        print('labels : ', labels)
+        labels = labels.to(args.device)
+        seen_relations = torch.Tensor([self.rel2id[i] for i in seen_relations]).to(args.device)
         mask = labels.unsqueeze(1).repeat(1, seen_relations.shape[0]) == seen_relations
         prob = -torch.log(dot_product / torch.sum(dot_product, dim = 1, keepdim = True))
         contrastive_loss = torch.sum(prob*mask, dim = 1) * balance_class
@@ -420,7 +423,7 @@ class Manager(object):
 #                 self.train_simple_model(args, encoder, train_data_for_initial, args.step1_epochs)
 
                 # repaly
-                if len(memorized_samples)>0:
+                if len(memorized_samples)>=0:
                     # select current task sample
                     for relation in current_relations:
                         memorized_samples[relation], _, proto_raw = self.select_data(args, encoder, training_data[relation])
@@ -437,8 +440,8 @@ class Manager(object):
                     for relation in history_relation:
                         train_data_for_memory += memorized_samples[relation]
                     
-#                     self.moment.init_moment(args, encoder, train_data_for_memory, is_memory=True)
-#                     self.train_mem_model(args, encoder, train_data_for_memory, proto4repaly, args.step2_epochs, seen_relations)
+                    self.moment.init_moment(args, encoder, train_data_for_memory, is_memory=True)
+                    self.train_mem_model(args, encoder, train_data_for_memory, proto4repaly, args.step2_epochs, seen_relations)
 
                 feat_mem = []
                 proto_mem = []
