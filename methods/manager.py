@@ -117,12 +117,7 @@ class Manager(object):
         for epoch_i in range(epochs):
             train_data(data_loader, "init_train_{}".format(epoch_i), is_mem=False)
             
-    def intra_class_loss(self, args, encoder, training_data):
-        """
-        
-            return:
-                + intra_class_loss: torch.tensor()
-        """
+ 
     @torch.no_grad()
     def get_concentration(self, args, encoder, training_data, protos_raw, current_relations):
         """
@@ -212,12 +207,6 @@ class Manager(object):
             protoNCE_losses = []
             td = tqdm(data_loader_, desc=name)
 
-#             proto_dict = {}
-#             # start generate prototype for each relation 
-#             for relation in current_relations:
-#                 _,_, proto = self.select_data(args, encoder, total_training_data_dict[relation])
-#                 proto_dict[self.rel2id[relation]] = proto
-#             # end generate prototype for each relation
             for step, batch_data in enumerate(td):
                 optimizer.zero_grad()
 
@@ -275,6 +264,7 @@ class Manager(object):
             return:
                 + episodic_loss: torch.tensor()
         """
+        pass
     def train_mem_model(self, args, encoder, mem_data, proto_mem, epochs, seen_relations):
         history_nums = len(seen_relations) - args.rel_per_task
         if len(proto_mem)>0:
@@ -423,19 +413,14 @@ class Manager(object):
 #                 self.train_simple_model(args, encoder, train_data_for_initial, args.step1_epochs)
 
                 # repaly
-                if len(memorized_samples)>=0:
+                if len(memorized_samples)>0:
                     # select current task sample
                     for relation in current_relations:
                         memorized_samples[relation], _, proto_raw = self.select_data(args, encoder, training_data[relation])
                         protos_raw.append(proto_raw)
                         protos_dict[self.rel2id[relation]] = proto_raw
-                    print('--------------------------------start get concentration ----------------------------')
                     concentration = self.get_concentration(args, encoder, training_data, protos_raw, current_relations)
-                    print('--------------------------------end get concentration -----------------------------')
-                    print('--------------------------------start train no name model -------------------------')
-
                     self.train_no_name_model(args,encoder, train_data_for_initial, protos_raw, seen_relations, current_relations, protos_dict, concentration)
-                    print('--------------------------------end train no name model----------------------------')
                     train_data_for_memory = []
                     for relation in history_relation:
                         train_data_for_memory += memorized_samples[relation]
