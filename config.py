@@ -66,7 +66,7 @@ class Param:
         parser.add_argument("--max_grad_norm", default=10, type=float) 
 
         # Memory size
-        parser.add_argument("--num_protos", default=20, type=int)
+        parser.add_argument("--num_protos", default=10, type=int)
 
         parser.add_argument("--optim", default='adam', type=str)
 
