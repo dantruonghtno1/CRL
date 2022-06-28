@@ -127,7 +127,7 @@ class Manager(object):
                 + concentraition: dict[relation, dist[torch.Tensor(n_seen_relations)]]
         """
         
-        protos_raw = torch.stack(protos_raw, dim = 0)
+        protos_raw = torch.cat(protos_raw, dim = 0)
         concentration = {}
         for rel in current_relations:
             train_data_per_rel = []
@@ -163,13 +163,14 @@ class Manager(object):
         """
         phi = []
         hiddens = F.normalize(hiddens, p = 2, dim = 1)
-        protos_raw = [p.reshape(1, 768) for p in protos_raw]            
+#         protos_raw = [p.reshape(1, 768) for p in protos_raw]            
         protos_raw = torch.cat(protos_raw, dim =0)
         protos_raw = F.normalize(protos_raw, p = 2, dim = 1)
         
         for rel in labels:
             phi.append(concentraion[(int)(rel.item())])
         phi = torch.stack(phi, dim = 0)
+#          batch_size x n_seen_relation
         # step 1: calculation contrastive loss between hiddens and protos_raw
         protos_raw = protos_raw.to(args.device)
         dot_product = torch.mm(hiddens, protos_raw.T)
@@ -208,6 +209,8 @@ class Manager(object):
         if current_feat_len == 0:
             return old_proto, relation_idx
         update_proto = (old_feat_len * old_proto + current_feat_len * current_proto)/(old_feat_len + current_feat_len)
+        update_proto = update_proto.reshape(1, -1)
+        update_proto = update_proto.to('cuda:0')
         return update_proto, relation_idx
         
 
@@ -316,7 +319,15 @@ class Manager(object):
                     self.moment.update_mem(ind, reps.detach())
                 else:
                     self.moment.update(ind, reps.detach(), hiddens.detach())
-        for epoch_i in range(5):
+                for idx, relation in enumerate(seen_relations):
+                    proto, len_hidden = self.get_proto_raw(self.moment.hiddens, self.moment.labels, relation)
+                    protos_raw[idx] = proto
+                    proto_dict[self.rel2id[relation]] = proto
+                # đang xét đến trường hợp dữ liệu train chỉ có dữ liệu task hiệu tại không thêm mem vào
+                # không update prototype quá khứ được. cũng tốt, tức là coi prototype quá khứ không đổi => không bị kiểu domain shift nhưng mà khi học task mới, encoder đẫ đổi?
+                # prototype không bị domain shift nhưng emcoder bị domain shift không? 
+                # trả lời: không, vì ta đã cố định những domain cũ, tức 
+        for epoch_i in range(3):
             train_data(data_loader, "no_name_train_{}".format(epoch_i), is_mem=False)
             
             
@@ -328,41 +339,7 @@ class Manager(object):
         """
         pass
     
-    
-#     def get_protoNCE_loss(self, args, hiddens, protos_raw, balance_class, seen_relations, labels, concentraion):
-#         """
-#             inputs: 
-#                 + hiddens: torch.Tensor(requires_grad = True) : batch_size x 768
-#                 + protos_raw: torch.Tensor(requires_grad = True) : n_seen_relations x 768 
-#                 + balance_class: torch.Tenor(): [1 x batch_size]
-#                 + seen_relations: list[str]
-#                 + labels: torch.Tensor(): 1 x len(current_relations)
-#                 + concentration : dict[relation; torch.Tensor([1 x len(seen_relations)])]
-#             outputs:
-#                 + protoNCE_loss: torch.tensor(requires_grad = True)
-#         """
-#         phi = []
-#         hiddens = F.normalize(hiddens, p = 2, dim = 1)
-#         protos_raw = torch.stack(protos_raw, dim =0)
-#         protos_raw = F.normalize(protos_raw, p = 2, dim = 1)
-        
-#         for rel in labels:
-#             phi.append(concentraion[(int)(rel.item())])
-#         phi = torch.stack(phi, dim = 0)
-#         # step 1: calculation contrastive loss between hiddens and protos_raw
-#         protos_raw = protos_raw.to(args.device)
-#         dot_product = torch.mm(hiddens, protos_raw.T)
-#         # expect: dot_product : batch_size x n_seen_relations 
-#         dot_product *= phi
-#         dot_product = torch.exp(dot_product - torch.max(dot_product, dim = 1, keepdim = True)[0].detach()) + 1e-5
-#         # labels = labels.to(args.device)
-#         seen_relations = torch.Tensor([self.rel2id[i] for i in seen_relations]).to(args.device)
-#         mask = labels.unsqueeze(1).repeat(1, seen_relations.shape[0]) == seen_relations
-#         prob = -torch.log(dot_product / torch.sum(dot_product, dim = 1, keepdim = True))
-#         contrastive_loss = torch.sum(prob*mask, dim = 1) * balance_class
-#         contrastive_loss = torch.mean(contrastive_loss)
-
-#         return contrastive_loss    
+  
     def get_protoNCE_mem_loss(self, args, hiddens, protos_raw, balance_class, seen_relations, labels):
         """
             inputs: 
@@ -376,7 +353,7 @@ class Manager(object):
                 + protoNCE_loss: torch.tensor(requires_grad = True)
         """
         hiddens = F.normalize(hiddens, p = 2, dim = 1)
-        protos_raw = torch.stack(protos_raw, dim =0)
+#         protos_raw = torch.stack(protos_raw, dim =0)
         protos_raw = F.normalize(protos_raw, p = 2, dim = 1)
         # step 1: calculation contrastive loss between hiddens and protos_raw
         protos_raw = protos_raw.to(args.device)
@@ -394,8 +371,12 @@ class Manager(object):
         return contrastive_loss
     def train_mem_model(self, args, encoder, mem_data, proto_mem, epochs, seen_relations, protos_raw):
         history_nums = len(seen_relations) - args.rel_per_task
+        print('len proto mem : ', len(proto_mem))
+        print('len protos raw :', len(protos_raw))
         if len(proto_mem)>0:
-            proto_mem = F.normalize(torch.stack(proto_mem, dim = 0), p =2, dim=1)
+            proto_mem = [p.reshape(1, -1) for p in proto_mem]
+            proto_mem = [p.to('cuda:0') for p in proto_mem]
+            proto_mem = F.normalize(torch.cat(proto_mem, dim = 0), p =2, dim=1)
             dist = dot_dist(proto_mem, proto_mem)
             dist = dist.to(args.device)
 
@@ -450,7 +431,7 @@ class Manager(object):
                 loss = cl_loss
 #                     def get_protoNCE_mem_loss(self, args, hiddens, protos_raw, balance_class, seen_relations, label):
 
-                protoNCE_loss = self.get_protoNCE_mem_loss(args, zz, protos_raw, balance_class, seen_relations, labels)
+                protoNCE_loss = self.get_protoNCE_mem_loss(args, zz, torch.cat(protos_raw, dim = 0), balance_class, seen_relations, labels)
                 protoNCE_losses.append(protoNCE_loss.item())
                 final_loss = cl_loss + protoNCE_loss
                 if isinstance(loss, float):
@@ -523,6 +504,8 @@ class Manager(object):
         mask = mask.reshape(1,-1)
         hiddens_of_relation = torch.matmul(mask, hiddens)
         proto = torch.mean(hiddens_of_relation, dim = 0)
+        proto = proto.reshape(1, -1)
+        proto = proto.to('cuda:0')
         len_hidden = torch.sum(mask)
         return proto, len_hidden
         
@@ -581,6 +564,7 @@ class Manager(object):
                         protos_raw[idx] = proto
                         protos_dict[self.rel2id[relation]] = proto
                 concentration = self.get_concentration(args, encoder, training_data, protos_raw, current_relations)
+#                 print(' concentration : ', concentration)
                 self.train_no_name_model(args,encoder, train_data_for_initial, protos_raw, seen_relations, current_relations, protos_dict,protos_index, protos_hidden_len, concentration)
                 for idx, relation in enumerate(seen_relations):
                     proto, len_hidden = self.get_proto_raw(self.moment.hiddens, self.moment.labels, relation)
@@ -591,8 +575,8 @@ class Manager(object):
                 if len(memorized_samples)>0:
                     # select current task sample
                     for relation in current_relations:
-                        memorized_samples[relation], _, proto_raw = self.select_data(args, encoder, training_data[relation])
-                        x_protos_raw.append(proto_raw)
+                        memorized_samples[relation], _, _ = self.select_data(args, encoder, training_data[relation])
+#                         x_protos_raw.append(proto_raw)
                     train_data_for_memory = []
                     for relation in history_relation:
                         train_data_for_memory += memorized_samples[relation]
