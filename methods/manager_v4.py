@@ -570,15 +570,24 @@ class Manager(object):
                 self.moment.init_moment(args, encoder, train_data_for_initial, is_memory=False)
                 self.train_simple_model(args, encoder, train_data_for_initial, args.step1_epochs)
                 # select current task sample
-                for relation in current_relations:
+                for idx, relation in enumerate(seen_relations):
                     proto, len_hidden = self.get_proto_raw(self.moment.hiddens, self.moment.labels, relation)
-                    protos_raw.append(proto)
-                    protos_dict[self.rel2id[relation]] = proto
-                    protos_hidden_len.append(len_hidden)
-                    protos_index.append(self.rel2id[relation])
+                    if relation in current_relations:
+                        protos_raw.append(proto)
+                        protos_dict[self.rel2id[relation]] = proto
+                        protos_hidden_len.append(len_hidden)
+                        protos_index.append(self.rel2id[relation])
+                    else:
+                        protos_raw[idx] = proto
+                        protos_dict[self.rel2id[relation]] = proto
                 concentration = self.get_concentration(args, encoder, training_data, protos_raw, current_relations)
                 self.train_no_name_model(args,encoder, train_data_for_initial, protos_raw, seen_relations, current_relations, protos_dict,protos_index, protos_hidden_len, concentration)
+                for idx, relation in enumerate(seen_relations):
+                    proto, len_hidden = self.get_proto_raw(self.moment.hiddens, self.moment.labels, relation)
+                    protos_raw[idx] = proto
+                    protos_dict[self.rel2id[relation]] = proto
                 # repaly
+                x_protos_raw = protos_raw[:-8].copy() 
                 if len(memorized_samples)>0:
                     # select current task sample
                     for relation in current_relations:
