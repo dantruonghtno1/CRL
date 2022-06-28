@@ -251,8 +251,7 @@ class Manager(object):
         encoder.train()
         new_protos_raw = protos_raw.copy()
         new_proto_dict = proto_dict.copy()
-        protoNCE_optimizer = self.get_optimizer(args, encoder)
-        l2_norm_optimizer = self.get_optimizer_L2_norm(args, encoder)
+        optimizer = self.get_optimizer(args, encoder)
 
         def train_data(data_loader_, name = "", is_mem = False):
             intra_class_losses = []
@@ -260,9 +259,7 @@ class Manager(object):
             td = tqdm(data_loader_, desc=name)
 
             for step, batch_data in enumerate(td):
-                protoNCE_optimizer.zero_grad()
-                l2_norm_optimizer.zero_grad()
-
+                optimizer.zero_grad()
                 labels, tokens, ind = batch_data
                 labels = labels.to(args.device)
                 tokens = torch.stack([x.to(args.device) for x in tokens], dim=0)
@@ -292,28 +289,26 @@ class Manager(object):
                 balance_class = balance_class.to(args.device)
                 intra_class_loss = euclid_distance@balance_class
                 intra_class_loss = intra_class_loss.view(-1)
-                intra_class_loss = intra_class_loss 
+                intra_class_loss = intra_class_loss * 0.01
                 # end calculate intra class loss                 
           
                 # add intra class loss into final_loss
-                intra_class_losses.append(intra_class_loss.item())
-                intra_class_loss.backward(retain_graph = True)
-                torch.nn.utils.clip_grad_norm_(encoder.parameters(), args.max_grad_norm)
-                l2_norm_optimizer.step()
-                # -----------------------end intra class loss ---------------------------------
-                
+                intra_class_losses.append(intra_class_loss.item())    
                 # -----------------------start protoNCE class loss ----------------------------
+                sup_contrastive_loss = self.moment.loss(reps, labels)
                 protoNCE_loss = self.get_protoNCE_loss(args, hiddens, new_protos_raw, balance_class, seen_relations, labels, concentration)
                 protoNCE_losses.append(protoNCE_loss.item())
-                protoNCE_loss.backward(retain_graph = True)
+
+                loss = sup_contrastive_loss + protoNCE_loss + intra_class_loss
+                loss.backward(retain_graph = True)
                 torch.nn.utils.clip_grad_norm_(encoder.parameters(), args.max_grad_norm)
-                protoNCE_optimizer.step()
-                # -----------------------start protoNCE class loss ----------------------------
+                optimizer.step()
                 
-#                 no_name_loss = intra_class_loss + 1 * protoNCE_loss
                 
                 
                 td.set_postfix(protoNCE_loss = np.array(protoNCE_losses).mean(), intra_class_loss=" {} ".format(np.array(intra_class_losses).mean()))
+
+#                 no_name_loss.backward(retain_graph = True)
 #                 torch.nn.utils.clip_grad_norm_(encoder.parameters(), args.max_grad_norm)
 #                 optimizer.step()
                 # update moemnt
@@ -322,7 +317,7 @@ class Manager(object):
                 else:
                     self.moment.update(ind, reps.detach(), hiddens.detach())
         for epoch_i in range(5):
-            train_data(data_loader, "init_train_{}".format(epoch_i), is_mem=False)
+            train_data(data_loader, "no_name_train_{}".format(epoch_i), is_mem=False)
             
             
 
